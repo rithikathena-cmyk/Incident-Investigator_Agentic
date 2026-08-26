@@ -28,7 +28,7 @@ from sqlalchemy.exc import OperationalError
 from app.database import maintenance_repository
 from app.database import production_repository as repository
 from app.database import quality_repository
-from app.database.connection import engine
+from app.database.connection import _normalize_database_url, engine
 from app.rag.ingest import Document, chunk_document, chunk_documents, get_client, load_documents
 from app.rag.search import search
 from app.tools import maintenance_tools, production_tools, quality_tools
@@ -49,6 +49,27 @@ def _qdrant_ready() -> bool:
         return True
     except Exception:
         return False
+
+
+class DatabaseUrlNormalizationTests(unittest.TestCase):
+    """DATABASE_URL support (for managed providers like Neon) - a pure
+    string transform, so no live DB needed. Verified separately against a
+    real Neon database when this was added; this just locks the behavior.
+    """
+
+    def test_rewrites_postgresql_scheme_for_the_psycopg3_driver(self) -> None:
+        raw = "postgresql://user:pass@host/db?sslmode=require&channel_binding=require"
+        self.assertEqual(
+            _normalize_database_url(raw),
+            "postgresql+psycopg://user:pass@host/db?sslmode=require&channel_binding=require",
+        )
+
+    def test_rewrites_the_short_postgres_scheme_too(self) -> None:
+        self.assertEqual(_normalize_database_url("postgres://u:p@h/d"), "postgresql+psycopg://u:p@h/d")
+
+    def test_leaves_an_already_qualified_scheme_untouched(self) -> None:
+        raw = "postgresql+psycopg://u:p@h/d"
+        self.assertEqual(_normalize_database_url(raw), raw)
 
 
 @unittest.skipUnless(

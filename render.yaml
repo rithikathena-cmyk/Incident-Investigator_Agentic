@@ -21,15 +21,11 @@ services:
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: POSTGRES_HOST
-        sync: false
-      - key: POSTGRES_PORT
-        sync: false
-      - key: POSTGRES_DB
-        sync: false
-      - key: POSTGRES_USER
-        sync: false
-      - key: POSTGRES_PASSWORD
+      # Neon (or any managed Postgres) hands you this connection string
+      # directly - paste it in as-is. Only needed as separate
+      # POSTGRES_HOST/PORT/DB/USER/PASSWORD vars for a host that doesn't
+      # give you a single URL; DATABASE_URL takes priority when present.
+      - key: DATABASE_URL
         sync: false
       - key: QDRANT_URL
         sync: false

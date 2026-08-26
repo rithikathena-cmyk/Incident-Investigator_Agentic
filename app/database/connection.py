@@ -54,7 +54,8 @@ def load_database_config() -> DatabaseConfig:
             "Missing required PostgreSQL environment variable(s): "
             f"{', '.join(missing)}.\n"
             "Copy .env.example to .env and fill in real values, then start "
-            "the database with `docker compose up -d`."
+            "the database with `docker compose up -d` (or set DATABASE_URL "
+            "for a managed/cloud instance instead)."
         )
 
     return DatabaseConfig(
@@ -66,8 +67,34 @@ def load_database_config() -> DatabaseConfig:
     )
 
 
-_config = load_database_config()
-engine = create_engine(_config.url, future=True)
+def _normalize_database_url(raw: str) -> str:
+    """Managed providers (Neon, Supabase, ...) hand you a ready-to-use
+    postgresql://... URL, already carrying whatever *they* require in its
+    query string (Neon: sslmode=require&channel_binding=require) - passed
+    through unchanged here. The one thing every one of them omits is the
+    driver name: SQLAlchemy defaults a bare "postgresql://" scheme to
+    psycopg2, which isn't installed (requirements.txt has psycopg[binary],
+    i.e. psycopg3) - so the scheme is rewritten to name it explicitly.
+    """
+    for prefix in ("postgresql://", "postgres://"):
+        if raw.startswith(prefix):
+            return "postgresql+psycopg://" + raw[len(prefix):]
+    return raw
+
+
+def resolve_database_url() -> str:
+    """DATABASE_URL, if set, is used as-is (aside from the driver-name fix
+    above) - this is the path for a managed provider's own connection
+    string. Otherwise built from the individual POSTGRES_* vars, for
+    local/self-hosted Postgres (docker-compose.yml).
+    """
+    raw = os.environ.get("DATABASE_URL")
+    if raw:
+        return _normalize_database_url(raw)
+    return load_database_config().url
+
+
+engine = create_engine(resolve_database_url(), future=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
