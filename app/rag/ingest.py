@@ -33,6 +33,10 @@ load_dotenv()
 # --- Config -----------------------------------------------------------
 
 _REQUIRED_VARS = ("QDRANT_HOST", "QDRANT_PORT", "QDRANT_COLLECTION")
+# Qdrant Cloud (and most managed Qdrant) connects via a single HTTPS URL
+# plus an API key, not a bare host/port pair - QDRANT_URL, when set, selects
+# that mode instead (see load_qdrant_config()/get_client() below).
+_CLOUD_REQUIRED_VARS = ("QDRANT_URL", "QDRANT_COLLECTION")
 
 # Small (384-dim), fast, no API key required - runs locally via fastembed's
 # ONNX runtime. See https://qdrant.github.io/fastembed/ for the supported
@@ -52,25 +56,45 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass(frozen=True)
 class QdrantConfig:
-    host: str
-    port: int
     collection: str
+    host: str | None = None
+    port: int | None = None
+    url: str | None = None
+    api_key: str | None = None
 
 
 def load_qdrant_config() -> QdrantConfig:
+    """QDRANT_URL selects Qdrant Cloud mode (a full https:// URL + an API
+    key); otherwise falls back to the local/self-hosted QDRANT_HOST +
+    QDRANT_PORT pair docker-compose.yml provides. QDRANT_API_KEY is read in
+    either mode - self-hosted Qdrant with auth enabled can use it too, and
+    it's simply unused (None) for a local instance with no auth.
+    """
+    if os.environ.get("QDRANT_URL"):
+        missing = [name for name in _CLOUD_REQUIRED_VARS if not os.environ.get(name)]
+        if missing:
+            raise RuntimeError(f"Missing required Qdrant environment variable(s): {', '.join(missing)}.")
+        return QdrantConfig(
+            collection=os.environ["QDRANT_COLLECTION"],
+            url=os.environ["QDRANT_URL"],
+            api_key=os.environ.get("QDRANT_API_KEY") or None,
+        )
+
     missing = [name for name in _REQUIRED_VARS if not os.environ.get(name)]
     if missing:
         raise RuntimeError(
             "Missing required Qdrant environment variable(s): "
             f"{', '.join(missing)}.\n"
             "Copy .env.example to .env and fill in real values, then start "
-            "Qdrant with `docker compose up -d`."
+            "Qdrant with `docker compose up -d` (or set QDRANT_URL for a "
+            "managed/cloud instance instead)."
         )
 
     return QdrantConfig(
+        collection=os.environ["QDRANT_COLLECTION"],
         host=os.environ["QDRANT_HOST"],
         port=int(os.environ["QDRANT_PORT"]),
-        collection=os.environ["QDRANT_COLLECTION"],
+        api_key=os.environ.get("QDRANT_API_KEY") or None,
     )
 
 
@@ -225,7 +249,10 @@ def get_client() -> QdrantClient:
     global _client
     if _client is None:
         config = load_qdrant_config()
-        _client = QdrantClient(host=config.host, port=config.port)
+        if config.url:
+            _client = QdrantClient(url=config.url, api_key=config.api_key)
+        else:
+            _client = QdrantClient(host=config.host, port=config.port, api_key=config.api_key)
     return _client
 
 

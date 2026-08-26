@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { WS_URL } from '../lib/apiConfig'
 import { applyEvent, initialPipeline } from '../lib/pipelineReducer'
-
-// Must match the host the page is served from - see the note in App.jsx.
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787/ws/investigate'
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)

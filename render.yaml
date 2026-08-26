@@ -1,0 +1,49 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+#
+# One free web service running the Dockerfile at the repo root, which
+# builds the frontend and serves it same-origin from the FastAPI app (see
+# app/server.py's StaticFiles mount) - so this is the entire deployment,
+# no separate frontend host needed.
+#
+# Postgres and Qdrant are intentionally NOT defined here as Render
+# resources - Render's own free Postgres expires after a fixed window, so
+# this points at external free-forever managed instances instead (Neon for
+# Postgres, Qdrant Cloud for Qdrant - see README's "Deploying" section).
+# Fill their connection details in as secrets after the first deploy.
+services:
+  - type: web
+    name: incident-investigator
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_PORT
+        sync: false
+      - key: POSTGRES_DB
+        sync: false
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION
+        value: manufacturing_knowledge
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_USER_PASSWORD
+        sync: false
+      - key: SPECIALIST_MODEL
+        value: haiku
+      - key: SUPERVISOR_MODEL
+        value: sonnet

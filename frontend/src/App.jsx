@@ -7,6 +7,7 @@ import LoginPage from './components/LoginPage'
 import SummaryPage from './components/SummaryPage'
 import TracePipeline from './components/TracePipeline'
 import { useInvestigation } from './hooks/useInvestigation'
+import { API_URL } from './lib/apiConfig'
 import './App.css'
 
 function hashToView(hash) {
@@ -32,14 +33,6 @@ function useView() {
 
   return [view, go]
 }
-
-// Deliberately 'localhost', not '127.0.0.1': the login session cookie is
-// SameSite=Lax (app/server.py), and browsers treat "localhost" and
-// "127.0.0.1" as different sites even though both resolve to loopback - a
-// mismatch here means the cookie silently never reaches the API/WS, which
-// looks like every authenticated request being rejected for no visible
-// reason. Keep this the same host the page itself is served from.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787'
 
 const AGENT_TITLES = {
   production: 'Production',

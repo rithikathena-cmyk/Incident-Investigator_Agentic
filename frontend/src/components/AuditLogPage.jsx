@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
-
-// Must match the host the page is served from - see the note in App.jsx.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787'
+import { API_URL } from '../lib/apiConfig'
 
 function formatTime(iso) {
   try {

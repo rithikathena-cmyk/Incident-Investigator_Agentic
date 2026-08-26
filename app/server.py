@@ -18,10 +18,13 @@ Run with:  uvicorn app.server:app --reload
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import security
@@ -34,18 +37,29 @@ from app.rag.ingest import get_embedding_model
 
 app = FastAPI(title="Manufacturing Investigator API")
 
-# The Vite dev server's default origin(s). This API has no auth of its own
-# beyond login sessions (app/security.py) - it's a local demo harness in
+# The Vite dev server's default origin(s), always allowed for local dev.
+# CORS_ORIGINS (comma-separated) adds more - only needed if the frontend is
+# deployed to a *different* origin than this API. This API has no auth of
+# its own beyond login sessions (app/security.py) - it's a demo harness in
 # front of an already-guarded pipeline - so CORS is intentionally scoped to
-# localhost only, not "*". allow_credentials is required so the browser
-# attaches/accepts the httpOnly session cookie across the 5173 <-> 8787 port
-# boundary (same registrable domain "localhost", so SameSite=Lax cookies
-# still flow - see app/security.py's module docstring).
+# explicit origins, never "*". allow_credentials is required so the browser
+# attaches/accepts the httpOnly session cookie.
+#
+# Note: a cross-origin frontend also needs the session cookie itself set
+# SameSite=None; Secure (see the /api/auth/login handler below) - browsers
+# never send a SameSite=Lax cookie on a cross-site request at all, no CORS
+# setting changes that. The simplest deployment avoids this class of issue
+# entirely: build the frontend (`npm run build`) and let this same app
+# serve it same-origin - see the StaticFiles mount at the bottom of this
+# file - in which case CORS_ORIGINS is never needed.
+_EXTRA_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        *_EXTRA_ORIGINS,
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -198,3 +212,17 @@ async def ws_investigate(websocket: WebSocket) -> None:
             await pump_task
     except WebSocketDisconnect:
         pass
+
+
+# Serves the built frontend (frontend/dist, from `npm run build`) when it
+# exists - the deployed-as-one-app path (e.g. a single Render/Fly.io
+# service), so the browser talks to the API/WebSocket same-origin and the
+# session cookie's SameSite=Lax still works with no CORS involved at all.
+# Mounted last so it never shadows the API/WebSocket routes above:
+# Starlette tries routes in registration order, and this Mount only catches
+# whatever none of them matched. Absent in local dev (frontend/dist doesn't
+# exist until you build it), where the separate Vite dev server on :5173 is
+# used instead - see CORSMiddleware above for that path.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")
