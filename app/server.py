@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from app import security
 from app.database import auth_repository
+from app.database.connection import init_db
 from app.guarded_investigation import investigate_guarded
 from app.guardrails import capabilities, guardrails
 from app.guardrails.guardrails import DEFAULT_ROLE, ROLE_DOMAIN_TABLE
@@ -68,6 +69,21 @@ app.add_middleware(
 
 SESSION_COOKIE_NAME = "session_token"
 SESSION_MAX_AGE_SECONDS = int(security.SESSION_TTL.total_seconds())
+
+
+@app.on_event("startup")
+def _ensure_schema() -> None:
+    """Create any missing tables (init_db()'s default drop_existing=False is
+    purely additive - a no-op against a schema that already exists, never
+    drops or alters existing data). Without this, a genuinely fresh
+    database (e.g. a brand-new managed Postgres before `python -m
+    app.database.seed` has ever been run against it) crashes the very next
+    startup hook instead of coming up cleanly - the login table has to
+    exist before ensure_default_users() below can query it. This does NOT
+    generate the synthetic production/maintenance/quality dataset - that's
+    still a deliberate one-time step (see README's "Deploying" section).
+    """
+    init_db()
 
 
 @app.on_event("startup")
