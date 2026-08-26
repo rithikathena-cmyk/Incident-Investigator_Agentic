@@ -100,9 +100,22 @@ def _warm_rag_pipeline() -> None:
     knowledge search - that first-ever embed/connect cost is a one-time
     several-second tax (measured), and paying it at server boot means every
     real investigation sees the fast, already-warm path.
+
+    Only the Knowledge specialist needs Qdrant - Production/Maintenance/
+    Quality don't touch it at all - so a missing/unreachable Qdrant (not
+    configured yet, still provisioning, momentarily down) must not take
+    the *entire* app down with it. Caught and logged instead of raised:
+    the Knowledge Agent's own tool call fails normally at request time
+    instead (already handled gracefully - see supervisor_tools.py's
+    _delegate_one, which reports one failed delegation without crashing
+    the investigation), rather than every specialist being unreachable
+    because the process itself never came up.
     """
-    get_qdrant_client()
-    get_embedding_model()
+    try:
+        get_qdrant_client()
+        get_embedding_model()
+    except Exception as exc:  # noqa: BLE001 - degrade, don't crash the app over this
+        print(f"[investigator] Warning: RAG warm-up failed, Knowledge searches will fail until this is fixed: {exc}")
 
 
 def _session_from_token(token: str | None) -> dict[str, str] | None:
