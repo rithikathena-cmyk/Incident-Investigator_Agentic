@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import security
+from app import diag_runner, diagnostics, security
 from app.database import auth_repository
 from app.database.connection import init_db
 from app.guarded_investigation import investigate_guarded
@@ -37,6 +37,11 @@ from app.rag.ingest import get_client as get_qdrant_client
 from app.rag.ingest import get_embedding_model
 
 app = FastAPI(title="Manufacturing Investigator API")
+
+# Resource-ceiling investigation instrumentation (app/diagnostics.py) - the
+# earliest possible baseline reading (item 1: "RSS before starting the
+# Supervisor"), taken before any DB/Qdrant/embedding-model work below.
+diagnostics.snapshot("server_import_baseline")
 
 # The Vite dev server's default origin(s), always allowed for local dev.
 # CORS_ORIGINS (comma-separated) adds more - only needed if the frontend is
@@ -112,8 +117,11 @@ def _warm_rag_pipeline() -> None:
     because the process itself never came up.
     """
     try:
+        diagnostics.snapshot("before_qdrant_client_open")
         get_qdrant_client()
+        diagnostics.snapshot("after_qdrant_client_open")
         get_embedding_model()
+        diagnostics.snapshot("after_embedding_model_loaded")
     except Exception as exc:  # noqa: BLE001 - degrade, don't crash the app over this
         print(f"[investigator] Warning: RAG warm-up failed, Knowledge searches will fail until this is fixed: {exc}")
 
@@ -185,6 +193,52 @@ def admin_audit_log(request: Request) -> dict[str, Any]:
     ]
     entries.sort(key=lambda e: e["timestamp"])
     return {"entries": entries}
+
+
+_diag_results: dict[str, dict[str, Any]] = {}
+
+
+@app.post("/api/admin/diag/{mode}")
+async def start_admin_diag(mode: str, request: Request) -> dict[str, Any]:
+    """Resource-ceiling investigation only (app/diagnostics.py,
+    app/diag_runner.py) - not part of the product. Kicks off one of
+    diag_runner's three controlled scenarios (knowledge /
+    supervisor-other / supervisor-knowledge) as a background task and
+    returns immediately, rather than holding the HTTP response open for
+    the whole run: Render's free plan has no Shell/SSH (so this endpoint
+    is the only way to trigger these scenarios there), and a run can take
+    up to the ~2.5 minutes this investigation is about, which risks an
+    edge/proxy timeout cutting the response before it completes. The
+    "[diag] ..." lines print to stdout regardless (same as any other
+    request - they land in Render's log stream live); GET the same path
+    afterward for the final JSON summary. Admin-gated the same way
+    /api/admin/audit-log already is - no new RBAC surface.
+    """
+    session = _require_session(request)
+    if session["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    if mode not in diag_runner.MODES:
+        raise HTTPException(status_code=400, detail=f"mode must be one of {list(diag_runner.MODES)}")
+
+    async def _task() -> None:
+        _diag_results[mode] = await diag_runner.run_experiment(mode)
+
+    asyncio.create_task(_task())
+    return {
+        "started": True,
+        "mode": mode,
+        "note": "Watch Render's log stream for live [diag] lines; GET this same path for the final result once it finishes.",
+    }
+
+
+@app.get("/api/admin/diag/{mode}")
+def get_admin_diag(mode: str, request: Request) -> dict[str, Any]:
+    session = _require_session(request)
+    if session["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    if mode not in diag_runner.MODES:
+        raise HTTPException(status_code=400, detail=f"mode must be one of {list(diag_runner.MODES)}")
+    return _diag_results.get(mode) or {"mode": mode, "status": "not started yet, or still running - check Render's log stream"}
 
 
 @app.get("/api/roles")

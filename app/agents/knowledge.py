@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 
 from claude_agent_sdk import ClaudeAgentOptions, Message, ResultMessage, query
 
+from app import diagnostics
 from app.config import SPECIALIST_MAX_TURNS, SPECIALIST_MODEL
 from app.tools.rag_tools import QUALIFIED_TOOL_NAME, knowledge_server
 
@@ -123,9 +124,16 @@ def build_options() -> ClaudeAgentOptions:
 
 
 async def run(question: str) -> AsyncIterator[Message]:
-    """Yield every raw SDK message for `question` - useful for tracing/tests."""
-    async for message in query(prompt=question, options=build_options()):
-        yield message
+    """Yield every raw SDK message for `question` - useful for tracing/tests.
+
+    Wrapped in diagnostics.watch_subprocess() (resource-ceiling
+    investigation instrumentation, not app behavior - see app/diagnostics.py)
+    so every Knowledge Agent subprocess spawn is measured the same way
+    whether it's reached via the Supervisor's delegation or directly.
+    """
+    async with diagnostics.watch_subprocess("knowledge"):
+        async for message in diagnostics.time_first_message("knowledge", query(prompt=question, options=build_options())):
+            yield message
 
 
 async def investigate(question: str) -> dict[str, object]:

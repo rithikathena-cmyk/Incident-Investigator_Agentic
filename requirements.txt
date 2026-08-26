@@ -7,3 +7,4 @@ fastembed
 fastapi
 uvicorn[standard]
 PyJWT
+psutil

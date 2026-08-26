@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, Message, ResultMessage, TextBlock, query
 
-from app import tracing
+from app import diagnostics, tracing
 from app.config import SUPERVISOR_MAX_TURNS, SUPERVISOR_MODEL
 from app.guardrails import capabilities
 from app.tools.supervisor_tools import (
@@ -159,8 +159,13 @@ async def run(question: str, *, investigation_id: str | None = None) -> AsyncIte
     investigation_id = investigation_id or capabilities.new_investigation_id()
     token = capabilities.current_investigation_id.set(investigation_id)
     try:
-        async for message in query(prompt=question, options=build_options()):
-            yield message
+        # diagnostics.watch_subprocess/time_first_message: resource-ceiling
+        # investigation instrumentation, not app behavior - see
+        # app/diagnostics.py. Measures the Supervisor's own subprocess the
+        # same way agents/knowledge.py measures the Knowledge Agent's.
+        async with diagnostics.watch_subprocess("supervisor"):
+            async for message in diagnostics.time_first_message("supervisor", query(prompt=question, options=build_options())):
+                yield message
     finally:
         capabilities.current_investigation_id.reset(token)
 
