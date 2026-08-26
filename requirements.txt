@@ -1,0 +1,9 @@
+claude-agent-sdk
+SQLAlchemy
+psycopg[binary]
+python-dotenv
+qdrant-client
+fastembed
+fastapi
+uvicorn[standard]
+PyJWT
