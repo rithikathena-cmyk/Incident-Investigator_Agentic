@@ -250,14 +250,61 @@ print(json.dumps(asyncio.run(investigate('Why did Line 4 production drop on 2026
 ```
 
 This is a real multi-agent run (each delegated specialist is its own Claude session hitting real
-Postgres/Qdrant), so expect it to take several minutes and make several dollars' worth of API
-calls at default effort.
+Postgres/Qdrant). After the model-tiering and batch-tool work described below, a broad question
+like this typically finishes in **20 seconds to a couple of minutes** depending on how many
+specialists and delegation rounds it genuinely needs — a narrow single-specialist question is
+usually under 30 seconds.
 
 Run the tests with (the DB/Qdrant-backed tests auto-skip if their container isn't up):
 
 ```bash
 PYTHONPATH=. python -m unittest discover -s tests -v
 ```
+
+## Running the web app
+
+The CLI examples above talk to the Supervisor directly. There's also a full web app - a FastAPI
+backend serving a WebSocket that streams every pipeline event live, and a React/Vite frontend
+with a chat panel, a live workflow-trace sidebar, a detail flow page, and an admin audit log page.
+
+Prerequisites are the same as above (`.env` filled in, `docker compose up -d`, Postgres seeded,
+Qdrant ingested), plus Node.js for the frontend.
+
+**Terminal 1 - backend:**
+
+```bash
+source .venv/Scripts/activate   # or .venv/bin/activate on macOS/Linux
+PYTHONPATH=. python -m uvicorn app.server:app --host 127.0.0.1 --port 8787
+```
+
+The first request that touches the knowledge base used to pay a one-time ~25s cost to load the
+embedding model - the server now loads it eagerly at startup instead, so that cost lands here,
+not on a user's first question.
+
+**Terminal 2 - frontend:**
+
+```bash
+cd frontend
+npm install     # first time only
+npm run dev
+```
+
+Open the URL Vite prints (default `http://localhost:5173`) and sign in with one of the seeded
+demo accounts (or set `SEED_ADMIN_PASSWORD` / `SEED_USER_PASSWORD` in `.env` to change them):
+
+| Username | Password   | Account role |
+|----------|------------|--------------|
+| `admin`  | `admin123` | admin - can also view the audit log page |
+| `user`   | `user123`  | user  |
+
+After logging in you land on a summary page with a static preview of the nine-stage pipeline and
+five example questions (one per specialist, plus a broad multi-agent one) that prefill the chat
+box. The role dropdown in the chat header is separate from your login account - it's the RBAC
+role (`plant_engineer`, `quality_auditor`, `maintenance_technician`, `guest`) the question is
+investigated *as*, letting you test the RBAC layer's domain restrictions directly from the UI.
+
+`VITE_API_URL` / `VITE_WS_URL` (frontend) let you point the UI at a backend running somewhere
+other than `localhost:8787`, if you ever need that.
 
 ## Current status & next step
 
